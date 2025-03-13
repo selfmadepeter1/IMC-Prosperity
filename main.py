@@ -1,50 +1,49 @@
-import backtrader as bt
+from datamodel import OrderDepth, TradingState, Order
+from typing import List, Dict
 
-class MarketMakingStrategy(bt.Strategy):
-    params = (("spread", 0.02), ("order_size", 10))
+class Trader:
+    def __init__(self, spread=0.02, order_size=10, position_limit=50):
+        self.spread = spread
+        self.order_size = order_size
+        self.position_limit = position_limit
+        self.positions: Dict[str, int] = {} 
+    def run(self, state: TradingState):
+        print("Observations: " + str(state.observations))  
+        result = {}
 
-    def __init__(self):
-        self.buy_order = None  
-        self.sell_order = None  
-        self.last_bid_price = None
-        self.last_ask_price = None
+        for product in state.order_depths:
+            order_depth: OrderDepth = state.order_depths[product]
+            orders: List[Order] = []
 
-    def next(self):
-        price = self.data.close[0]  
+            
+            current_position = self.positions.get(product, 0)
+            acceptable_price = 10  
+           
+            if len(order_depth.sell_orders) > 0:
+                best_ask, best_ask_amount = list(order_depth.sell_orders.items())[0]
 
-        # Compute new bid and ask prices
-        bid_price = price * (1 - self.params.spread / 2)
-        ask_price = price * (1 + self.params.spread / 2)
+               
+                if current_position < self.position_limit and int(best_ask) < acceptable_price:
+                    print("BUY", str(-best_ask_amount) + "x", best_ask)
+                    orders.append(Order(product, best_ask, -best_ask_amount))
 
-        # Only update orders if the bid/ask price has changed
-        if self.buy_order and self.last_bid_price != bid_price:
-            self.cancel(self.buy_order)
-            self.buy_order = self.buy(size=self.params.order_size, price=bid_price, exectype=bt.Order.Limit)
+            if len(order_depth.buy_orders) > 0:
+                best_bid, best_bid_amount = list(order_depth.buy_orders.items())[0]
 
-        if self.sell_order and self.last_ask_price != ask_price:
-            self.cancel(self.sell_order)
-            self.sell_order = self.sell(size=self.params.order_size, price=ask_price, exectype=bt.Order.Limit)
+                
+                if current_position > -self.position_limit and int(best_bid) > acceptable_price:
+                    print("SELL", str(best_bid_amount) + "x", best_bid)
+                    orders.append(Order(product, best_bid, -best_bid_amount))
 
-        # Update last bid/ask prices
-        self.last_bid_price = bid_price
-        self.last_ask_price = ask_price
+            
+            if product not in self.positions:
+                self.positions[product] = 0  
+            self.positions[product] += sum(order.size for order in orders)  
+           
+            result[product] = orders
 
-    def notify_order(self, order):
-        """ Handles order status updates """
-        if order.status in [order.Completed]:
-            if order.isbuy():
-                print(f"BUY EXECUTED: {order.executed.price}")
-            elif order.issell():
-                print(f"SELL EXECUTED: {order.executed.price}")
-
-
-cerebro = bt.Cerebro()
-cerebro.addstrategy(MarketMakingStrategy)
-
-
-data = bt.feeds.GenericCSVData(dataname='market_data.csv', dtformat=2, openinterest=-1)
-cerebro.adddata(data)
-
-
-cerebro.run()
-cerebro.plot()
+        
+        traderData = "SAMPLE"
+        conversions = 1  
+        
+        return result, conversions, traderData
